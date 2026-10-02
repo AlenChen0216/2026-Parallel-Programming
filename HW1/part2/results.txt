@@ -1,0 +1,5 @@
+no-vectorized: 6.995647
+vectorized: 1.727273
+avx2: 0.868498
+speedup_vectorized: 4.0
+speedup_avx2: 8.0

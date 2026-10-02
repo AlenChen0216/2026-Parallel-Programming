@@ -49,8 +49,17 @@ void clampedExpVector(float *values, int *exponents, float *output, int N)
   // Your solution should work for any value of
   // N and VECTOR_WIDTH, not just when VECTOR_WIDTH divides N
   //
-  for (int i = 0; i < N; i += VECTOR_WIDTH)
+  int trueLength = N;
+  if(N%VECTOR_WIDTH != 0){
+    trueLength = N + (VECTOR_WIDTH - (N % VECTOR_WIDTH));
+  }
+  __pp_vec_float x;
+  __pp_mask maskAll;
+  for (int i = 0; i < trueLength; i += VECTOR_WIDTH)
   {
+    int offset = (i + VECTOR_WIDTH > N) ? (N - i) : VECTOR_WIDTH;
+    maskAll = _pp_init_ones(offset);
+    _pp_vload_float(x, values + i, maskAll);
   }
 }
 
