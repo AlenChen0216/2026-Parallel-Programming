@@ -25,29 +25,38 @@ void* number_in_circle_thread(void* arg){
     LL local_count = 0;
     // static thread_local std::mt19937 generator(std::random_device{}());
     // std::uniform_real_distribution<float> distribution(-1.0, 1.0);
-    std::uint32_t pre = static_cast<std::uint32_t>(time(NULL)) ^
-                        (static_cast<std::uint32_t>(thread_id + 1) * 0x9E3779B9u);
-    if(pre == 0){
-        pre = 1;
+    uint32_t __attribute__((aligned(32))) random_n[8];
+    // float __attribute__((aligned(32))) x[8] = {10};
+    // float __attribute__((aligned(32))) y[8] = {10};
+    for(int i = 0 ; i < 8; i++){
+        random_n[i] = rand();
     }
-    float __attribute__((aligned(64))) x[8] = {10};
-    float __attribute__((aligned(64))) y[8] = {10};
-
+    __m256i_u state = _mm256_loadu_si256((__m256i_u*)random_n);
     for(LL i = 0; i < n; i+=8){
-        for(int j = 0; j < 8 && i+j < n; j++){
-            x[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
-            y[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
-        }
-        if(i + 8 > n){
-            for(int j = n % 8; j < 8; j++){
-                // Maps to (1, 1), which is outside the unit circle.
-                x[j] = 2147483648.0f;
-                y[j] = 2147483648.0f;
-            }
-        }
+        // for(int j = 0; j < 8 && i+j < n; j++){
+        //     x[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
+        //     y[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
+        // }
+        // if(i + 8 > n){
+        //     for(int j = n % 8; j < 8; j++){
+        //         // Maps to (1, 1), which is outside the unit circle.
+        //         x[j] = 2147483648.0f;
+        //         y[j] = 2147483648.0f;
+        //     }
+        // }
+        // generate random numbers
+        state = _mm256_xor_si256(state, _mm256_slli_epi32(state, 13));
+        state = _mm256_xor_si256(state, _mm256_srli_epi32(state, 17));
+        state = _mm256_xor_si256(state, _mm256_slli_epi32(state, 5));
+
         // load
-        __m256 x_vec = _mm256_load_ps(x);
-        __m256 y_vec = _mm256_load_ps(y);
+        __m256 x_vec =  _mm256_cvtepi32_ps(_mm256_and_si256(state, _mm256_set1_epi32(0x7FFFFFFF)));  // _mm256_load_ps(x);
+        
+        state = _mm256_xor_si256(state, _mm256_slli_epi32(state, 13));
+        state = _mm256_xor_si256(state, _mm256_srli_epi32(state, 17));
+        state = _mm256_xor_si256(state, _mm256_slli_epi32(state, 5));
+
+        __m256 y_vec =   _mm256_cvtepi32_ps(_mm256_and_si256(state, _mm256_set1_epi32(0x7FFFFFFF)));  // _mm256_load_ps(y);
         // mapping
         // Inputs are 31-bit values in [0, 2^31); scale to [-1, 1).
         __m256 scale = _mm256_set1_ps(1.0f / 1073741824.0f);
