@@ -11,39 +11,17 @@
 std::vector<LL> thread_counts;
 std::vector<LL> thread_N;
 
-inline std::uint32_t xorshift(std::uint32_t &pre){
-    pre ^= pre << 13;
-    pre ^= pre >> 17;
-    pre ^= pre << 5;
-    return pre;
-}
-
 void* number_in_circle_thread(void* arg){
     long  thread_id = (long)arg;
     const LL n = thread_N[thread_id];
     // local one
     LL local_count = 0;
-    // static thread_local std::mt19937 generator(std::random_device{}());
-    // std::uniform_real_distribution<float> distribution(-1.0, 1.0);
     uint32_t __attribute__((aligned(32))) random_n[8];
-    // float __attribute__((aligned(32))) x[8] = {10};
-    // float __attribute__((aligned(32))) y[8] = {10};
     for(int i = 0 ; i < 8; i++){
         random_n[i] = rand();
     }
     __m256i_u state = _mm256_loadu_si256((__m256i_u*)random_n);
     for(LL i = 0; i < n; i+=8){
-        // for(int j = 0; j < 8 && i+j < n; j++){
-        //     x[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
-        //     y[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
-        // }
-        // if(i + 8 > n){
-        //     for(int j = n % 8; j < 8; j++){
-        //         // Maps to (1, 1), which is outside the unit circle.
-        //         x[j] = 2147483648.0f;
-        //         y[j] = 2147483648.0f;
-        //     }
-        // }
         // generate random numbers
         state = _mm256_xor_si256(state, _mm256_slli_epi32(state, 13));
         state = _mm256_xor_si256(state, _mm256_srli_epi32(state, 17));
@@ -72,11 +50,6 @@ void* number_in_circle_thread(void* arg){
         __m256 cmp = _mm256_cmp_ps(_mm256_set1_ps(1.0f), sum, _CMP_GE_OQ);
         int mask = _mm256_movemask_ps(cmp);
         local_count += __builtin_popcount(mask);
-        // float x = xorshift(pre);
-        // float y = xorshift(pre);
-        // if(x*x + y*y <= 1){
-        //     local_count++;
-        // }
 
     }
     thread_counts[thread_id] = local_count;
