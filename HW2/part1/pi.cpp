@@ -1,0 +1,110 @@
+#include <iostream>
+#include <stdlib.h>
+#include <pthread.h>
+#include <random>
+#include <vector>
+#include <time.h>
+#include <immintrin.h>
+#include <cstdint>
+#define LL long long
+
+std::vector<LL> thread_counts;
+std::vector<LL> thread_N;
+
+inline std::uint32_t xorshift(std::uint32_t &pre){
+    pre ^= pre << 13;
+    pre ^= pre >> 17;
+    pre ^= pre << 5;
+    return pre;
+}
+
+void* number_in_circle_thread(void* arg){
+    long  thread_id = (long)arg;
+    const LL n = thread_N[thread_id];
+    // local one
+    LL local_count = 0;
+    // static thread_local std::mt19937 generator(std::random_device{}());
+    // std::uniform_real_distribution<float> distribution(-1.0, 1.0);
+    std::uint32_t pre = static_cast<std::uint32_t>(time(NULL)) ^
+                        (static_cast<std::uint32_t>(thread_id + 1) * 0x9E3779B9u);
+    if(pre == 0){
+        pre = 1;
+    }
+    float __attribute__((aligned(64))) x[8] = {10};
+    float __attribute__((aligned(64))) y[8] = {10};
+
+    for(LL i = 0; i < n; i+=8){
+        for(int j = 0; j < 8 && i+j < n; j++){
+            x[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
+            y[j] = static_cast<float>(xorshift(pre) & 0x7FFFFFFFu);
+        }
+        if(i + 8 > n){
+            for(int j = n % 8; j < 8; j++){
+                // Maps to (1, 1), which is outside the unit circle.
+                x[j] = 2147483648.0f;
+                y[j] = 2147483648.0f;
+            }
+        }
+        // load
+        __m256 x_vec = _mm256_load_ps(x);
+        __m256 y_vec = _mm256_load_ps(y);
+        // mapping
+        // Inputs are 31-bit values in [0, 2^31); scale to [-1, 1).
+        __m256 scale = _mm256_set1_ps(1.0f / 1073741824.0f);
+        __m256 x_mapped = _mm256_mul_ps(x_vec, scale);
+        __m256 y_mapped = _mm256_mul_ps(y_vec, scale);
+        x_vec = _mm256_sub_ps(x_mapped, _mm256_set1_ps(1.0f));
+        y_vec = _mm256_sub_ps(y_mapped, _mm256_set1_ps(1.0f));
+
+        // calculate
+        __m256 x2 = _mm256_mul_ps(x_vec, x_vec);
+        __m256 y2 = _mm256_mul_ps(y_vec, y_vec);
+        __m256 sum = _mm256_add_ps(x2, y2);
+        __m256 cmp = _mm256_cmp_ps(_mm256_set1_ps(1.0f), sum, _CMP_GE_OQ);
+        int mask = _mm256_movemask_ps(cmp);
+        local_count += __builtin_popcount(mask);
+        // float x = xorshift(pre);
+        // float y = xorshift(pre);
+        // if(x*x + y*y <= 1){
+        //     local_count++;
+        // }
+
+    }
+    thread_counts[thread_id] = local_count;
+    return NULL;
+}
+
+int main(int argc, char *argv[]){
+    static const int threads = argv[1] ? atoi(argv[1]) : 1;
+    static const LL N = argv[2] ? atoll(argv[2]) : 10000000;
+    LL number_in_circle = 0;
+    srand(time(NULL));
+    // need optimize
+    // for(LL i = 0; i < N; i++){
+    //     double x = (double)rand() / RAND_MAX;
+    //     double y = (double)rand() / RAND_MAX;
+    //     if(x*x + y*y <= 1){
+    //         number_in_circle++;
+    //     }
+    // }
+    // optimize 
+    std::vector<pthread_t> thread_pool(threads);
+    thread_counts = std::vector<LL>(threads, 0);
+    thread_N = std::vector<LL>(threads, N/threads);
+    for(int i = 0 ; i < N%threads; i++){
+        thread_N[i]++;
+    }
+    long thread_num;
+    for(thread_num = 0; thread_num < threads; thread_num++){
+        pthread_create(&thread_pool[thread_num], NULL, number_in_circle_thread, (void*)thread_num);
+    }
+    for(int i = 0 ; i < threads; i++){
+        pthread_join(thread_pool[i], NULL);
+    }
+    for(int i = 0 ; i < threads; i++){
+        number_in_circle += thread_counts[i];
+    }
+    double pi_estimate = (4.0 * number_in_circle) / N;
+    printf("%lf\n",pi_estimate);
+    return 0;
+}
