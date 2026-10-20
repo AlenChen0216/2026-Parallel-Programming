@@ -54,15 +54,14 @@ void worker_thread_start(WorkerArgs *const args)
     // }
     // printf("thread %d: start_row = %d, total_rows = %d\n", args->threadId, start_row, total_rows);
     // int *tmp_output = new int[args->width * args->height];
-    double start_time = CycleTimer::current_seconds();
+    // double start_time = CycleTimer::current_seconds();
     for(int i = args->threadId ; i < args->height; i+=args->numThreads){
-        if(i % args->numThreads == args->threadId){
-            mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, 1, args->maxIterations, args->output);
-        }
+        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, 1, args->maxIterations, args->output);
+        
     }
     // mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, start_row, total_rows, args->maxIterations, args->output);
-    double end_time = CycleTimer::current_seconds();
-    printf("thread %d finished in %.3f ms\n", args->threadId, (end_time - start_time) * 1000);
+    // double end_time = CycleTimer::current_seconds();
+    // printf("thread %d finished in %.3f ms\n", args->threadId, (end_time - start_time) * 1000);
 
     // char filename[64];
     // snprintf(filename, sizeof(filename), "mandelbrot-thread-%d.ppm", args->threadId);
