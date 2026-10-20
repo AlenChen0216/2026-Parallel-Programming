@@ -1,5 +1,5 @@
 CXX = clang++
-CXXFLAGS = -Wall -Wextra -O3 -std=c++17 -pthread -mavx512f
+CXXFLAGS = -Wall -Wextra -O3 -std=c++17 -pthread -mavx2
 
 all: 
 	${CXX} ${CXXFLAGS} -o pi.out pi.cpp
