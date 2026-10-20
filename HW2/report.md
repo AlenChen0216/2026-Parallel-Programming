@@ -19,7 +19,7 @@ void worker_thread_start(WorkerArgs *const args){
 }
 ```
 
-實作時，我將影像由上而下切分成數個連續的列區段，讓每個 thread 負責其中一段。各 thread 分配到的列數盡可能相同，剩餘的列則由最後一個 thread 計算。
+實作時，我將影像由上而下切分成數個連續的 row 區段，讓每個 thread 負責其中一段。各 thread 分配到的列數盡可能相同，剩餘的列則由最後一個 thread 計算。
 
 不同 thread 數量下的 speedup 如下圖：
 
@@ -56,10 +56,25 @@ thread 2:
 
 ### In your write-up, describe your parallelization approach and report the final speedup achieved with 4 threads.
 
+修改後的 code 如下：
 
+```c++
+for(int i = 0 ; i < args->height; i++){
+    if(i % args->numThreads == args->threadId){
+        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, 1, args->maxIterations, args->output);
+    }
+}
+```
+目標是透過 round robine 的方式讓每一個 thread 的`工作量`盡量相等。 如此一來，就可以把 Q2 中提到的 中間區段較高的計算輛平分給每一個 thrad 而不是由單一 thread 處理，進而有效增加 speedup ，並讓 speedup 和 thread 使用數量接近線性關係。如下圖所示：
+
+![speedup2](./pic/PP2-speedup_2.png)
 
 ## Q4
 
 ### Is the performance noticeably better than with 6 threads? Why or why not?
 
+根據下圖，可以看到使用的 thread 數量大於 6 時， performance `沒有` 比使用 6 個 thread 還好。
 
+![speedup3](./pic/PP2-speedup_3.png)
+
+因為實體只有 6 個 core，如果 application 要使用更多的 thread ，那 thread 之間就會彼此競爭 core 的使用權限，進而增加 context switch 的次數，而讓 performance 無法更進一步的提昇。
