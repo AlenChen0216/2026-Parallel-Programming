@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include "cycle_timer.h"
 
 struct WorkerArgs
 {
@@ -26,6 +27,8 @@ extern void mandelbrot_serial(float x0,
                               int max_iterations,
                               int *output);
 
+extern void
+write_ppm_image(int *data, int width, int height, const char *filename, int max_iterations);
 //
 // worker_thread_start --
 //
@@ -41,7 +44,31 @@ void worker_thread_start(WorkerArgs *const args)
     // Of course, you can copy mandelbrot_serial() to this file and
     // modify it to pursue a better performance.
 
-    printf("Hello world from thread %d\n", args->threadId);
+    // printf("Hello world from thread %d\n", args->threadId);
+    int start_row, total_rows;
+    start_row = (args->height / args->numThreads) * args->threadId;
+    if (args->threadId == args->numThreads - 1){
+        total_rows = args->height - start_row;
+    }else{
+        total_rows = args->height / args->numThreads;
+    }
+    // printf("thread %d: start_row = %d, total_rows = %d\n", args->threadId, start_row, total_rows);
+    // int *tmp_output = new int[args->width * args->height];
+    double start_time = CycleTimer::current_seconds();
+    mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, start_row, total_rows, args->maxIterations, args->output);
+    double end_time = CycleTimer::current_seconds();
+    printf("thread %d finished in %.3f ms\n", args->threadId, (end_time - start_time) * 1000);
+
+    // char filename[64];
+    // snprintf(filename, sizeof(filename), "mandelbrot-thread-%d.ppm", args->threadId);
+    // write_ppm_image(tmp_output, args->width, args->height, filename, args->maxIterations);
+
+    // for(int j= start_row; j < start_row + total_rows; j++){
+    //     for(int i=0; i < args->width; i++){
+    //         args->output[j * args->width + i] = tmp_output[j * args->width + i];
+    //     }
+    // }
+    // delete[] tmp_output;
 }
 
 //
