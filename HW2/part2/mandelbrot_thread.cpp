@@ -56,11 +56,21 @@ void worker_thread_start(WorkerArgs *const args)
     // int *tmp_output = new int[args->width * args->height];
     // double start_time = CycleTimer::current_seconds();
     int w = 4;
-    for(int i = args->threadId*w ; i < args->height; i+=(args->numThreads*w)){
-        const int rows_to_process = (w > args->height - i) ? (args->height - i) : w;
-        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, rows_to_process, args->maxIterations, args->output);
+    static int next_row = 0;
+    static int finished_workers = 0;
+    const int height = static_cast<int>(args->height);
+    while (true) {
+        const int row = __atomic_fetch_add(&next_row, w, __ATOMIC_RELAXED);
+        if (row >= height)
+            break;
+        const int rows_to_process = (w > height - row) ? height - row : w;
+        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, row, rows_to_process, args->maxIterations, args->output);
     }
-    // mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, start_row, total_rows, args->maxIterations, args->output);
+    // Calls to mandelbrot_thread are sequential; all workers join before the next call.
+    if (__atomic_add_fetch(&finished_workers, 1, __ATOMIC_ACQ_REL) == args->numThreads) {
+        __atomic_store_n(&next_row, 0, __ATOMIC_RELAXED);
+        __atomic_store_n(&finished_workers, 0, __ATOMIC_RELAXED);
+    }
     // double end_time = CycleTimer::current_seconds();
     // printf("thread %d finished in %.3f ms\n", args->threadId, (end_time - start_time) * 1000);
 
