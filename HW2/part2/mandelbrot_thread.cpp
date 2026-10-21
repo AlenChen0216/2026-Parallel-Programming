@@ -55,9 +55,10 @@ void worker_thread_start(WorkerArgs *const args)
     // printf("thread %d: start_row = %d, total_rows = %d\n", args->threadId, start_row, total_rows);
     // int *tmp_output = new int[args->width * args->height];
     double start_time = CycleTimer::current_seconds();
-    int w = 10;
+    int w = 4;
     for(int i = args->threadId*w ; i < args->height; i+=(args->numThreads*w)){
-        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, w, args->maxIterations, args->output);
+        const int rows_to_process = (w > args->height - i) ? (args->height - i) : w;
+        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, rows_to_process, args->maxIterations, args->output);
     }
     // mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, start_row, total_rows, args->maxIterations, args->output);
     double end_time = CycleTimer::current_seconds();
