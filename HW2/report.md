@@ -56,16 +56,17 @@ thread 2:
 
 ### In your write-up, describe your parallelization approach and report the final speedup achieved with 4 threads.
 
-修改後的 code 如下：
+我將原本按連續區段分配的方式，改為逐 row 以 round-robin 方式分配工作。
 
 ```c++
-for(int i = 0 ; i < args->height; i++){
-    if(i % args->numThreads == args->threadId){
-        mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, 1, args->maxIterations, args->output);
-    }
+for(int i = args->threadId ; i < args->height; i+=args->numThreads){
+    mandelbrot_serial(args->x0, args->y0, args->x1, args->y1, args->width, args->height, i, 1, args->maxIterations, args->output);
 }
 ```
-目標是透過 round robine 的方式讓每一個 thread 的`工作量`盡量相等。 如此一來，就可以把 Q2 中提到的 中間區段較高的計算輛平分給每一個 thrad 而不是由單一 thread 處理，進而有效增加 speedup ，並讓 speedup 和 thread 使用數量接近線性關係。如下圖所示：
+
+這種分配方式的目標是讓 Q2 中計算量較高的中間區域會分散給多個 thread 處理，有助於減少單一 thread 承擔過多工作的情形。
+
+修改後的 speedup 如下圖所示。在這組測量結果中，speedup 隨 thread 數量增加而呈現接近線性的成長趨勢。
 
 ![speedup2](./pic/PP2-speedup_2.png)
 
@@ -73,8 +74,8 @@ for(int i = 0 ; i < args->height; i++){
 
 ### Is the performance noticeably better than with 6 threads? Why or why not?
 
-根據下圖，可以看到使用的 thread 數量大於 6 時， performance `沒有` 比使用 6 個 thread 還好。
+從下圖可以看出，在這組測量結果中，使用超過 6 個 thread 時，speedup 均低於使用 6 個 thread 的結果。因此，繼續增加 thread 數量並未帶來更好的效能。
 
 ![speedup3](./pic/PP2-speedup_3.png)
 
-因為實體只有 6 個 core，如果 application 要使用更多的 thread ，那 thread 之間就會彼此競爭 core 的使用權限，進而增加 context switch 的次數，而讓 performance 無法更進一步的提昇。
+由於實驗環境只有 6 個實體核心，當 thread 數量超過 6 時，各 thread 可能需要競爭核心的運算資源，並增加排程與 context switch 的額外成本。這些因素可能抵銷增加 thread 所帶來的效益，使效能無法進一步提升。
