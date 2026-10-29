@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Linux GCC OpenMP",
+            "compilerPath": "/usr/bin/gcc",
+            "compilerArgs": ["-fopenmp"],
+            "includePath": ["${workspaceFolder}/**"],
+            "defines": ["MEDIUMN"],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

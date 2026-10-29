@@ -1,0 +1,140 @@
+conj_grad._omp_fn.0() /home/alen/2026-Parallel-Programming/HW3/part1/cg
+Event: cpu/cycles/Pu
+
+Percent         sub    $0x78,%rsp                                 
+                mov    %rbp,0x50(%rsp)                                      
+                mov    %rbx,0x48(%rsp)                                      
+                mov    %r15,0x70(%rsp)                                      
+                mov    %fs:0x28,%rbx                                    
+                mov    %rbx,0x38(%rsp)                                      
+                mov    %rdi,%rbx                                
+              → call   omp_get_num_threads@plt                                              
+                mov    %eax,%ebp                                
+              → call   omp_get_thread_num@plt                                             
+                mov    %eax,%ecx                                
+                mov    lastrow,%eax                                   
+                sub    firstrow,%eax                                    
+                add    $0x1,%eax                                
+                cltd                          
+                idiv   %ebp                           
+                cmp    %edx,%ecx                                
+                lea    0x1(%rax),%esi                                     
+                cmovl  %esi,%eax                                
+                mov    $0x0,%esi                                
+                cmovl  %esi,%edx                                
+                imul   %eax,%ecx                                
+                add    %ecx,%edx                                
+                lea    (%rax,%rdx,1),%ecx                                         
+                cmp    %ecx,%edx                                
+              ↓ jge    206                          
+                movslq %edx,%rdx                                
+   0.00         mov    0x10(%rbx),%rsi                                      
+                mov    (%rbx),%rdi                                  
+                mov    %eax,%eax                                
+                mov    %r13,0x60(%rsp)                                      
+                add    %rdx,%rax                                
+                mov    0x20(%rbx),%r13                                      
+                pxor   %xmm3,%xmm3                                  
+                mov    %r14,0x68(%rsp)                                      
+                mov    0x8(%rbx),%rcx                                     
+                lea    (%rsi,%rdx,4),%r8                                        
+                lea    (%rsi,%rax,4),%r15                                         
+                mov    0x18(%rbx),%r14                                      
+                mov    %r12,0x58(%rsp)                                      
+                lea    (%rdi,%rdx,8),%r12                                         
+                xchg   %ax,%ax                              
+   0.00   a0:   mov    (%r8),%edi                                 
+   0.01         mov    0x4(%r8),%r9d                                    
+   0.06         movaps %xmm3,0x10(%rsp)                                       
+                movaps %xmm3,0x20(%rsp)                                       
+                cmp    %r9d,%edi                                
+              ↓ jge    1c3                          
+                mov    %r9d,%ebx                                
+   0.07         sub    %edi,%ebx                                
+                lea    -0x1(%rbx),%eax                                      
+   0.00         cmp    $0x2,%eax                                
+              ↓ jbe    16a                          
+                mov    %ebx,%ebp                                
+   0.06         mov    %r13,(%rsp)                                  
+   0.00         movslq %edi,%rax                                
+                pxor   %xmm2,%xmm2                                  
+                shr    $0x2,%ebp                                
+   0.07         mov    %r14,0x8(%rsp)                                     
+                lea    (%r14,%rax,4),%r11                                         
+                pxor   %xmm1,%xmm1                                  
+                mov    %ebp,%r10d                                 
+   0.06         lea    0x0(%r13,%rax,8),%rsi                                            
+   0.00         xor    %eax,%eax                                
+                shl    $0x4,%r10                                
+                cs     nopw 0x0(%rax,%rax,1)                                            
+   0.84  100:   lea    (%r11,%rax,1),%rdx                                         
+  14.52         movupd (%rsi,%rax,2),%xmm6                                          
+  16.23         movupd 0x10(%rsi,%rax,2),%xmm7                                              
+   0.42         add    $0x10,%rax                                 
+   8.55         movslq 0x4(%rdx),%r13                                     
+   0.47         movslq (%rdx),%r14                                  
+   7.28         movsd  (%rcx,%r14,8),%xmm0                                          
+   7.59         movhpd (%rcx,%r13,8),%xmm0                                          
+   3.87         mulpd  %xmm6,%xmm0                                  
+   4.13         movslq 0x8(%rdx),%r13                                     
+   5.04         movslq 0xc(%rdx),%rdx                                     
+   4.23         addpd  %xmm0,%xmm2                                  
+   5.75         movsd  (%rcx,%r13,8),%xmm0                                          
+   7.40         movhpd (%rcx,%rdx,8),%xmm0                                          
+   3.68         mulpd  %xmm7,%xmm0                                  
+   0.99         movaps %xmm2,0x10(%rsp)                                       
+   4.32         addpd  %xmm0,%xmm1                                  
+   1.41         movaps %xmm1,0x20(%rsp)                                       
+   0.01         cmp    %r10,%rax                                
+   0.48       ↑ jne    100                          
+   0.02         shl    $0x2,%ebp                                
+   0.01         mov    (%rsp),%r13                                  
+   0.03         mov    0x8(%rsp),%r14                                     
+   0.01         cmp    %ebp,%ebx                                
+   0.00       ↓ je     1c3                          
+   0.02         add    %ebp,%edi                                
+   0.01  16a:   movslq %edi,%rax                                
+   0.09         movslq (%r14,%rax,4),%rdx                                         
+   0.10         movsd  (%rcx,%rdx,8),%xmm0                                          
+   0.01         lea    0x1(%rdi),%edx                                     
+   0.20         mulsd  0x0(%r13,%rax,8),%xmm0                                             
+   0.13         addsd  0x10(%rsp),%xmm0                                       
+   0.00         cmp    %edx,%r9d                                
+   0.00       ↓ jle    1bd                          
+   0.05         movslq 0x4(%r14,%rax,4),%rdx                                            
+   0.00         add    $0x2,%edi                                
+   0.08         movsd  (%rcx,%rdx,8),%xmm1                                          
+   0.13         mulsd  0x8(%r13,%rax,8),%xmm1                                             
+   0.08         addsd  %xmm1,%xmm0                                  
+                cmp    %edi,%r9d                                
+   0.00       ↓ jle    1bd                          
+   0.02         movslq 0x8(%r14,%rax,4),%rdx                                            
+   0.02         movsd  (%rcx,%rdx,8),%xmm1                                          
+   0.08         mulsd  0x10(%r13,%rax,8),%xmm1                                              
+   0.05         addsd  %xmm1,%xmm0                                  
+   0.04  1bd:   movsd  %xmm0,0x10(%rsp)                                       
+   0.01  1c3:   pxor   %xmm0,%xmm0                                  
+   0.41         addsd  0x10(%rsp),%xmm0                                       
+   0.01         add    $0x4,%r8                               
+   0.00         add    $0x8,%r12                                
+   0.24         addsd  0x18(%rsp),%xmm0                                       
+   0.27         addsd  0x20(%rsp),%xmm0                                       
+   0.27         addsd  0x28(%rsp),%xmm0                                       
+   0.08         movsd  %xmm0,-0x8(%r12)                                       
+                cmp    %r8,%r15                               
+              ↑ jne    a0                         
+                mov    0x58(%rsp),%r12                                      
+                mov    0x60(%rsp),%r13                                      
+                mov    0x68(%rsp),%r14                                      
+         206:   mov    0x38(%rsp),%rax                                      
+                sub    %fs:0x28,%rax                                    
+              ↓ jne    22a                          
+                mov    0x48(%rsp),%rbx                                      
+                mov    0x50(%rsp),%rbp                                      
+                mov    0x70(%rsp),%r15                                      
+                add    $0x78,%rsp                                 
+              ← ret                           
+         22a:   mov    %r12,0x58(%rsp)                                      
+                mov    %r13,0x60(%rsp)                                      
+                mov    %r14,0x68(%rsp)                                      
+              → call   __stack_chk_fail@plt                                           

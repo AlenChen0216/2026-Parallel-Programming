@@ -10,7 +10,7 @@
 // Floaging point arrays here are named as in spec discussion of
 // CG algorithm
 //---------------------------------------------------------------------
-void conj_grad(const int colidx[],
+void conj_grad(const int colidx[],   // TODO: target improvement
                const int rowstr[],
                const double x[],
                double z[],
@@ -40,6 +40,7 @@ void conj_grad(const int colidx[],
     // rho = r.r
     // Now, obtain the norm of r: First, sum squares of r elements locally...
     //---------------------------------------------------------------------
+    #pragma omp parallel for schedule(static) reduction(+:rho) shared(r)
     for (int j = 0; j < lastcol - firstcol + 1; j++)
     {
         rho = rho + r[j] * r[j];
@@ -63,20 +64,26 @@ void conj_grad(const int colidx[],
         //       unrolled-by-two version is some 10% faster.
         //       The unrolled-by-8 version below is significantly faster
         //       on the Cray t3d - overall speed of code is 1.5 times faster.
+
+        
+        #pragma omp parallel for schedule(static) private(sum) shared(a, colidx, rowstr, p, q)
         for (int j = 0; j < lastrow - firstrow + 1; j++)
-        {
+        {  
             sum = 0.0;
+            #pragma omp simd reduction(+:sum)
             for (int k = rowstr[j]; k < rowstr[j + 1]; k++)
-            {
+            {   //TODO: key point
                 sum = sum + a[k] * p[colidx[k]];
             }
             q[j] = sum;
         }
+        
 
         //---------------------------------------------------------------------
         // Obtain p.q
         //---------------------------------------------------------------------
         d = 0.0;
+        #pragma omp parallel for schedule(static) reduction(+:d) shared(p, q)
         for (int j = 0; j < lastcol - firstcol + 1; j++)
         {
             d = d + p[j] * q[j];
@@ -97,6 +104,7 @@ void conj_grad(const int colidx[],
         // and    r = r - alpha*q
         //---------------------------------------------------------------------
         rho = 0.0;
+        #pragma omp parallel for schedule(static) shared(z, r, p, q)
         for (int j = 0; j < lastcol - firstcol + 1; j++)
         {
             z[j] = z[j] + alpha * p[j];
@@ -107,6 +115,7 @@ void conj_grad(const int colidx[],
         // rho = r.r
         // Now, obtain the norm of r: First, sum squares of r elements locally...
         //---------------------------------------------------------------------
+        #pragma omp parallel for schedule(static) reduction(+:rho) shared(r)
         for (int j = 0; j < lastcol - firstcol + 1; j++)
         {
             rho = rho + r[j] * r[j];
@@ -120,6 +129,7 @@ void conj_grad(const int colidx[],
         //---------------------------------------------------------------------
         // p = r + beta*p
         //---------------------------------------------------------------------
+        #pragma omp parallel for schedule(static) shared(p, r, beta)
         for (int j = 0; j < lastcol - firstcol + 1; j++)
         {
             p[j] = r[j] + beta * p[j];
@@ -132,11 +142,13 @@ void conj_grad(const int colidx[],
     // The partition submatrix-vector multiply
     //---------------------------------------------------------------------
     sum = 0.0;
+    #pragma omp parallel for schedule(static) private(d) shared(a, colidx, rowstr, z, r)
     for (int j = 0; j < lastrow - firstrow + 1; j++)
     {
         d = 0.0;
+        #pragma omp simd reduction(+:d)
         for (int k = rowstr[j]; k < rowstr[j + 1]; k++)
-        {
+        { // TODO: key point
             d = d + a[k] * z[colidx[k]];
         }
         r[j] = d;
@@ -238,7 +250,7 @@ void makea(int n,
 // rows range from firstrow to lastrow
 // the rowstr pointers are defined for nrows = lastrow-firstrow+1 values
 //---------------------------------------------------------------------
-void sparse(double a[],
+void sparse(double a[], // TODO: target improvement
             int colidx[],
             int rowstr[],
             int n,
@@ -269,6 +281,7 @@ void sparse(double a[],
     //---------------------------------------------------------------------
     // ...count the number of triples in each row
     //---------------------------------------------------------------------
+    #pragma omp parallel for schedule(static) shared(rowstr)
     for (int j = 0; j < nrows + 1; j++)
     {
         rowstr[j] = 0;
@@ -343,16 +356,16 @@ void sparse(double a[],
 
                 cont40 = false;
                 int k = rowstr[j];
-                for (; k < rowstr[j + 1]; k++)
+                for (; k < rowstr[j + 1]; k++)  // TODO: key point
                 {
-                    if (colidx[k] > jcol)
+                    if (colidx[k] > jcol) // TODO: key point
                     {
                         //----------------------------------------------------------------
                         // ... insert colidx here orderly
                         //----------------------------------------------------------------
-                        for (int kk = rowstr[j + 1] - 2; kk >= k; kk--)
+                        for (int kk = rowstr[j + 1] - 2; kk >= k; kk--) // TODO: key point
                         {
-                            if (colidx[kk] > -1)
+                            if (colidx[kk] > -1) // TODO: key point
                             {
                                 a[kk + 1] = a[kk];
                                 colidx[kk + 1] = colidx[kk];
@@ -418,6 +431,7 @@ void sparse(double a[],
             nza = nza + 1;
         }
     }
+    #pragma omp parallel for schedule(static) shared(rowstr, nzloc)
     for (int j = 1; j < nrows + 1; j++)
     {
         rowstr[j] = rowstr[j] - nzloc[j - 1];
@@ -555,9 +569,11 @@ void init(double *zeta)
         r[j] = 0.0;
         p[j] = 0.0;
     }
+
+
 }
 
-void iterate(double *zeta, const int *it)
+void iterate(double *zeta, const int *it) // TODO: target improvement
 {
     double rnorm;
     double norm_temp1, norm_temp2;
