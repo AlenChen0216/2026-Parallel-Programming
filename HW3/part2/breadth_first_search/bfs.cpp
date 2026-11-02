@@ -38,7 +38,7 @@ int top_down_step(Graph g, int *distances, int depth)
 
     int count = 0;
 
-    #pragma omp parallel for reduction(+:count) schedule(dynamic, 1024)
+    #pragma omp parallel for reduction(+:count) schedule(guided, 1024)
     for (int i = 0; i < g->num_nodes; i++)
     {
         if(distances[i] != depth){
