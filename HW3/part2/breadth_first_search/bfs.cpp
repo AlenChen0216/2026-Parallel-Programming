@@ -34,7 +34,8 @@ void vertex_set_destroy(VertexSet *list)
 // follow all outgoing edges, and add all neighboring vertices to the
 // new_frontier.
 void top_down_step(Graph g, VertexSet *frontier, VertexSet *new_frontier, int *distances)
-{
+{   
+    #pragma omp parallel for
     for (int i = 0; i < frontier->count; i++)
     {
 
@@ -48,10 +49,17 @@ void top_down_step(Graph g, VertexSet *frontier, VertexSet *new_frontier, int *d
         {
             int outgoing = g->outgoing_edges[neighbor];
 
-            if (distances[outgoing] == NOT_VISITED_MARKER)
-            {
-                distances[outgoing] = distances[node] + 1;
-                int index = new_frontier->count++;
+            // if (distances[outgoing] == NOT_VISITED_MARKER)
+            // {
+            //     distances[outgoing] = distances[node] + 1;
+            //     int index = new_frontier->count++;
+            //     new_frontier->vertices[index] = outgoing;
+            // }
+            int index;
+            if(__sync_bool_compare_and_swap(&distances[outgoing], NOT_VISITED_MARKER, distances[node] + 1))
+            {   
+                #pragma omp atomic capture
+                index = new_frontier->count++;
                 new_frontier->vertices[index] = outgoing;
             }
         }
@@ -74,6 +82,7 @@ void bfs_top_down(Graph graph, solution *sol)
     VertexSet *new_frontier = &list2;
 
     // initialize all nodes to NOT_VISITED
+    #pragma omp parallel for
     for (int i = 0; i < graph->num_nodes; i++)
         sol->distances[i] = NOT_VISITED_MARKER;
 
@@ -106,6 +115,11 @@ void bfs_top_down(Graph graph, solution *sol)
     // free memory
     vertex_set_destroy(&list1);
     vertex_set_destroy(&list2);
+}
+
+void bottom_up_step(Graph g, VertexSet *frontier, int *distances)
+{
+    
 }
 
 void bfs_bottom_up(Graph graph, solution *sol)
