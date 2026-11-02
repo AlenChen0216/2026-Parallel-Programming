@@ -38,7 +38,7 @@ int top_down_step(Graph g, int *distances, int depth)
 
     int count = 0;
 
-    #pragma omp parallel for reduction(+:count) schedule(dynamic, 1500)
+    #pragma omp parallel for reduction(+:count) schedule(dynamic, 1024)
     for (int i = 0; i < g->num_nodes; i++)
     {
         if(distances[i] != depth){
@@ -50,8 +50,9 @@ int top_down_step(Graph g, int *distances, int depth)
         for (int neighbor = start_edge; neighbor < end_edge; neighbor++)
         {
             int outgoing = g->outgoing_edges[neighbor];
-            if(__sync_bool_compare_and_swap(&distances[outgoing], NOT_VISITED_MARKER, depth + 1))
+            if(distances[outgoing] == NOT_VISITED_MARKER)
             {
+                distances[outgoing] = depth + 1;
                 count+=1;
             }
         }
@@ -99,7 +100,7 @@ void bfs_top_down(Graph graph, solution *sol)
 int bottom_up_step(Graph g, int *distances, int depth)
 {   
     int count = 0;
-    #pragma omp parallel for reduction(+:count) schedule(dynamic, 1500)
+    #pragma omp parallel for reduction(+:count) schedule(dynamic, 1024)
     for(int i = 0 ; i < g->num_nodes; i++){
         if(distances[i] != NOT_VISITED_MARKER){
             continue;
