@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <stdint.h>
 
-unsigned int xorshifht(unsigned int* stat){
+static inline unsigned int xorshifht(unsigned int* stat){
     unsigned int x = *stat;
     x ^= x << 13;
     x ^= x >>17;
@@ -29,6 +29,7 @@ int main(int argc, char **argv)
     MPI_Comm_rank(MPI_COMM_WORLD,&world_rank);
     MPI_Comm_size(MPI_COMM_WORLD,&world_size);
     unsigned int state = (unsigned int )time(NULL) ^ (unsigned int ) (world_rank + 1) * 0x123456789;
+    unsigned int state2 = (unsigned int )time(NULL) ^ (unsigned int ) (world_rank + 1) * 0x45678912;
     long long int count = 0;
     long long int tosses_in_this = tosses / (long long int)world_size;
     int remainder = tosses%(long long int)world_size;
@@ -36,11 +37,9 @@ int main(int argc, char **argv)
         tosses_in_this += 1;
     }
     for(long long int toss = 0 ; toss < tosses_in_this; toss++){
-        double x = (double) xorshifht(&state)/ UINT32_MAX;
-        double y = (double) xorshifht(&state)/ UINT32_MAX;
-        if(x*x + y*y <=1){
-            count++;
-        }
+        double x = (double) xorshifht(&state) * (1.0 / 4294967295.0);
+        double y = (double) xorshifht(&state2) * (1.0 / 4294967295.0);
+        count += (x * x + y * y <= 1.0);
     }
     if (world_rank > 0)
     {
