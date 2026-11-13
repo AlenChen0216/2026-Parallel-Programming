@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     if(remainder != 0 && world_rank < remainder){
         tosses_in_this += 1;
     }
-    for(int toss = 0 ; toss < tosses_in_this; toss++){
+    for(long long int toss = 0 ; toss < tosses_in_this; toss++){
         double x = (double) xorshifht(&state)/ UINT32_MAX;
         double y = (double) xorshifht(&state)/ UINT32_MAX;
         if(x*x + y*y <=1){
