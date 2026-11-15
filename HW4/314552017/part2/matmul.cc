@@ -15,40 +15,34 @@ void construct_matrices(
 
      // use scatter to distribute the data to all processes.
      // need to consider padding.
-     int size,rank;
-     MPI_Comm_size(MPI_COMM_WORLD, &size);
-     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-     if(rank == size - 1){
-        *a_mat_ptr = new int[((n/size) + (n % size)) * m];
-     }else{
-        *a_mat_ptr = new int[(n/size) * m];
-     }
-     *b_mat_ptr = new int[m * l];
-
-     if(rank == 0){
-        MPI_Request a_requests[size - 1];
-        MPI_Request b_requests[size - 1];
-        for(int i = 1 ; i< size ; i++){
-            if(i == size - 1){
-                MPI_Isend(a_mat + i * (n/size) * m, ((n/size) + (n % size)) * m, MPI_INT, i, 0, MPI_COMM_WORLD, &a_requests[i - 1]);
-            }else{
-                MPI_Isend(a_mat + i * (n/size) * m, (n/size) * m, MPI_INT, i, 0, MPI_COMM_WORLD, &a_requests[i - 1]);
+    int size,rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int a_rows = n/size;
+    if(rank < n % size){
+       a_rows++;
+    }
+    *a_mat_ptr = new int[a_rows * m];
+    *b_mat_ptr = new int[m * l];
+    int sendcounts[size];
+    int displs[size];
+    if(rank == 0){
+        displs[0] = 0;
+        sendcounts[0] = (n/size) * m;
+        if(0 < n % size){
+            sendcounts[0] += m;
+        }
+        for(int i = 1 ; i < size; ++i){
+            displs[i] = displs[i - 1] + sendcounts[i - 1];
+            sendcounts[i] = (n/size) * m;
+            if(i < n % size){
+                sendcounts[i] += m;
             }
-            MPI_Isend(b_mat, m * l, MPI_INT, i, 0, MPI_COMM_WORLD, &b_requests[i - 1]);
         }
-        std::copy(a_mat, a_mat + (n/size) * m, *a_mat_ptr);
         std::copy(b_mat, b_mat + m * l, *b_mat_ptr);
-        MPI_Waitall(size - 1, a_requests, MPI_STATUSES_IGNORE);
-        MPI_Waitall(size - 1, b_requests, MPI_STATUSES_IGNORE);
-        
-     }else{
-        if(rank == size - 1){
-            MPI_Recv(*a_mat_ptr, ((n/size) + (n % size)) * m, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        }else{
-            MPI_Recv(*a_mat_ptr, (n/size) * m, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        }
-        MPI_Recv(*b_mat_ptr, m * l, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     }
+    }
+    MPI_Scatterv(a_mat, sendcounts, displs, MPI_INT, *a_mat_ptr, a_rows * m, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(*b_mat_ptr, m * l, MPI_INT, 0, MPI_COMM_WORLD);
 }
 
 void matrix_multiply(
@@ -58,39 +52,56 @@ void matrix_multiply(
      * constructed. The result should be stored in out_mat, which is a continuous memory placing n *
      * l elements of int. You need to make sure rank 0 receives the result.
      */
-     int size,rank;
-     MPI_Comm_size(MPI_COMM_WORLD, &size);
-     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-     int a_rows = (rank == size - 1) ? ((n/size) + (n % size)) : (n/size);
-     int *local_out_mat = new int[a_rows * l];
-
-     for(int i = 0; i < a_rows; ++i)
-     {
-         for(int j = 0; j < l; ++j)
-         {
-             local_out_mat[i * l + j] = 0;
-             for(int k = 0; k < m; ++k)
-             {
-                 local_out_mat[i * l + j] += a_mat[i * m + k] * b_mat[j * m + k];
-             }
-         }
-     }
-    if(rank == 0)
+    int size,rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int a_rows = (rank < n % size) ? ((n/size) + 1) : (n/size);
+    int *local_out_mat = new int[a_rows * l];
+    for(int i = 0; i < a_rows; ++i)
     {
-        std::copy(local_out_mat, local_out_mat + a_rows * l, out_mat);
-        MPI_Request requests[size - 1];
-        for(int i = 1; i < size; ++i)
-        {
-            int rows_to_receive = (i == size - 1) ? ((n/size) + (n % size)) : (n/size);
-            MPI_Irecv(out_mat + i * (n/size) * l, rows_to_receive * l, MPI_INT, i, 0, MPI_COMM_WORLD, &requests[i - 1]);
+        int j = 0;
+        // Unrolling the loop for better performance
+        // one a row, calculate 4 rows of b at the same time
+        for(; j+3 < l; j+=4){
+            int sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0;
+            for(int k = 0; k < m; ++k){
+                int a = a_mat[i * m + k];
+                sum0 += a * b_mat[j * m + k];
+                sum1 += a * b_mat[(j + 1) * m + k];
+                sum2 += a * b_mat[(j + 2) * m + k];
+                sum3 += a * b_mat[(j + 3) * m + k];
+            }
+            local_out_mat[i * l + j] = sum0;
+            local_out_mat[i * l + j + 1] = sum1;
+            local_out_mat[i * l + j + 2] = sum2;
+            local_out_mat[i * l + j + 3] = sum3;
         }
-        MPI_Waitall(size - 1, requests, MPI_STATUSES_IGNORE);
+        // rest of the b rows.
+        for(; j < l; ++j){
+            int sum = 0;
+            for(int k = 0; k < m; ++k){
+                sum += a_mat[i * m + k] * b_mat[j * m + k];
+            }
+            local_out_mat[i * l + j] = sum;
+        }
     }
-    else
-    {
-        MPI_Send(local_out_mat, a_rows * l, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    int recvcounts[size];
+    int displs[size];
+    if(rank == 0){
+        displs[0] = 0;
+        recvcounts[0] = (n/size) * l;
+        if(n % size != 0){
+            recvcounts[0] += l;
+        }
+        for(int i = 1 ; i < size; ++i){
+            displs[i] = displs[i - 1] + recvcounts[i - 1];
+            recvcounts[i] = (n/size) * l;
+            if(i < n % size){
+                recvcounts[i] += l;
+            }
+        }
     }
+    MPI_Gatherv(local_out_mat, a_rows * l, MPI_INT, out_mat, recvcounts, displs, MPI_INT, 0, MPI_COMM_WORLD);
     delete[] local_out_mat;
 }
 
