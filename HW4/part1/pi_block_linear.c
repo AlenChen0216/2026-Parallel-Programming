@@ -4,7 +4,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <stdint.h>
 
 static inline unsigned int xorshifht(unsigned int* stat){
     unsigned int x = *stat;
