@@ -57,8 +57,8 @@ void matrix_multiply(
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     int a_rows = (rank < n % size) ? ((n/size) + 1) : (n/size);
     int *local_out_mat = new int[a_rows * l];
-    for(int j_block = 0; j_block < l; j_block += 32){
-        int j_block_end = std::min(j_block + 32, l);
+    for(int j_block = 0; j_block < l; j_block += 64){
+        int j_block_end = std::min(j_block + 64, l);
         int i = 0;
         for(; i + 1 < a_rows; i += 2)
         {
