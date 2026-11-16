@@ -57,7 +57,43 @@ void matrix_multiply(
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     int a_rows = (rank < n % size) ? ((n/size) + 1) : (n/size);
     int *local_out_mat = new int[a_rows * l];
-    for(int i = 0; i < a_rows; ++i)
+    int i = 0;
+    for(; i + 1 < a_rows; i += 2)
+    {
+        int j = 0;
+        for(; j + 3 < l; j += 4){
+            int sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0;
+            int sum4 = 0, sum5 = 0, sum6 = 0, sum7 = 0;
+            for(int k = 0; k < m; ++k){
+                int a0 = a_mat[i * m + k], a1 = a_mat[(i + 1) * m + k];
+                int b0 = b_mat[j * m + k], b1 = b_mat[(j + 1) * m + k];
+                int b2 = b_mat[(j + 2) * m + k], b3 = b_mat[(j + 3) * m + k];
+                sum0 += a0 * b0; sum1 += a0 * b1;
+                sum2 += a0 * b2; sum3 += a0 * b3;
+                sum4 += a1 * b0; sum5 += a1 * b1;
+                sum6 += a1 * b2; sum7 += a1 * b3;
+            }
+            local_out_mat[i * l + j] = sum0;
+            local_out_mat[i * l + j + 1] = sum1;
+            local_out_mat[i * l + j + 2] = sum2;
+            local_out_mat[i * l + j + 3] = sum3;
+            local_out_mat[(i + 1) * l + j] = sum4;
+            local_out_mat[(i + 1) * l + j + 1] = sum5;
+            local_out_mat[(i + 1) * l + j + 2] = sum6;
+            local_out_mat[(i + 1) * l + j + 3] = sum7;
+        }
+        for(; j < l; ++j){
+            int sum0 = 0, sum1 = 0;
+            for(int k = 0; k < m; ++k){
+                int b = b_mat[j * m + k];
+                sum0 += a_mat[i * m + k] * b;
+                sum1 += a_mat[(i + 1) * m + k] * b;
+            }
+            local_out_mat[i * l + j] = sum0;
+            local_out_mat[(i + 1) * l + j] = sum1;
+        }
+    }
+    for(; i < a_rows; ++i)
     {
         int j = 0;
         // Unrolling the loop for better performance
