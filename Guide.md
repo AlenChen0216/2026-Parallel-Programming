@@ -324,3 +324,283 @@ grader 除了要求數值驗證通過，還會檢查 `student time` 必須比 `d
 比較時同時記錄 `T_serial / T_parallel(N)`，看相對原始版本的改善；也記錄 `T_parallel(1) / T_parallel(N)`，看修改後程式的 scaling。即使正式 CG 計算明顯加速，序列初始化仍會限制整體收益。
 
 你現在可以先完成三個小成果：保存 baseline 的 perf 結果、寫下 SpMV 每個變數的讀寫歸屬、實作並量測 v1。確認這三項後，再進入 reduction 與迴圈融合，讓每次修改都有可以解釋的結果。
+
+---
+
+**Part 2：BFS 實作引導**
+
+這一部分依序處理 top-down optimization、bottom-up、hybrid。依照[作業要求](https://nycu-sslab.github.io/PP-f26/assignments/HW3/#32-part-2-requirements)，BFS 的提交修改集中在 [`bfs.cpp`](HW3/part2/breadth_first_search/bfs.cpp)；可以在其中新增 helper、調整自己新增的 helper 參數。三個公開的 `bfs_*()` 函式介面請保持一致。
+
+目前你的 top-down 只有初始化 `distances` 的迴圈加了 OpenMP；`top_down_step()` 仍是序列版。`bottom_up_step()`、`bfs_bottom_up()` 和 `bfs_hybrid()` 尚待實作。下面以這個狀態為起點，提供局部片段與練習。
+
+**先固定 BFS 每一層的規則**
+
+令 `depth = d`，在一層開始時：
+
+- `frontier` 恰好包含距離 root 為 `d` 的頂點，每個頂點只出現一次。
+- 本層只能把尚未訪問的頂點設成 `d+1`，並放進 `next_frontier`。
+- 整層完成後，才交換兩個 frontier，增加 `depth`。
+- root 的距離是 `0`；搜尋結束後，不可達頂點仍為 `-1`。
+
+層與層之間有相依性，先平行化一層裡面的工作。每個 BFS 函式都要自行重新初始化結果與工作空間，因為 runner / grader 會反覆呼叫它們。
+
+| 方法 | 誰負責發現新頂點？ | 讀取的邊 | 主要競爭 |
+| --- | --- | --- | --- |
+| Top-down | 本層 frontier 的每個頂點 `u` | `outgoing(u)`：`u → v` | 不同 `u` 可能同時發現同一個 `v` |
+| Bottom-up | 每個未訪問頂點 `v` 自己找父節點 | `incoming(v)`：`u → v` | 按 `v` 分工時，距離可由唯一 thread 寫入 |
+| Hybrid | 每層選擇其中一種 step | 依本層方向決定 | 切換時的 frontier 表示與同步 |
+
+題目的圖可以是有向圖。Bottom-up 查的是「誰有邊指向 `v`」，所以要用 `incoming_begin/end()`，不能直接沿用 top-down 的 outgoing edges。這些 helper 定義在 [`graph_internal.h`](HW3/part2/common/graph_internal.h)，也處理了最後一個頂點沒有 `starts[v+1]` 的情況。
+
+**Top-down，第一版：先處理兩個獨立的 race**
+
+先在紙上畫出這張圖：
+
+```text
+0 → 1 → 3
+  ↘ 2 ↗
+```
+
+本層 frontier 是 `{1, 2}` 時，兩個 threads 都可能看到 `distances[3] == -1`。原本的「先判斷，再設定」不是不可分割的操作，直接加 `parallel for` 會讓頂點 `3` 被重複加入。
+
+第一個需要保護的是「取得發現 `v` 的資格」。把判斷與寫入改成 CAS，只有成功者可以加入下一層：
+
+```cpp
+// 局部片段：depth 是本層距離，在整個 step 中唯讀。
+if (__sync_bool_compare_and_swap(
+        &distances[v], NOT_VISITED_MARKER, depth + 1)) {
+    // 只有這個 thread 能把 v 加進 next_frontier。
+}
+```
+
+這個 builtin 的語意可查 [GCC CAS 文件](https://gcc.gnu.org/onlinedocs/gcc/_005f_005fsync-Builtins.html)。同一層的發現者都會提出 `depth+1`，但仍需要 CAS 保證只加入一次；即使寫入數值相同，未同步的並行寫入也有問題。
+
+第二個需要保護的是「分配輸出位置」。即使 CAS 保證不同 thread 加入不同頂點，它們仍可能同時執行 `new_frontier->count++`，拿到相同 index。第一版可以先用 OpenMP atomic capture：
+
+```cpp
+// 放在 CAS 成功的分支中。
+int index;
+#pragma omp atomic capture
+index = new_frontier->count++;
+new_frontier->vertices[index] = v;
+```
+
+atomic capture 保護 counter；取得 index 後，每個 thread 寫自己的位置即可。清空 count 必須在 step 開始前完成；讀取新 frontier、交換指標必須等整個 parallel step 完成。只有 count 更新完成，還不代表對應的 `vertices[index]` 已寫完。
+
+現在才把 `top_down_step()` 外層的 frontier 索引迴圈加上 `parallel for`。先使用 `schedule(static)`，確認 1、2、4 threads 都得到相同距離，再考慮負載平衡。請維持列內的 `node`、邊範圍與鄰居索引為區域變數。
+
+這一版的完成條件：菱形圖中的頂點 `3` 距離為 `2`，而且只加入一次；下一層容量不超過 `num_nodes`。Frontier 內的排列順序可以不同，BFS 距離必須一致。
+
+**Top-down，第二版：減少不必要的 CAS 與共享 counter 更新**
+
+先考慮作業提示：「何時已知道 CAS 一定失敗？」頂點若已訪問，就不需要再做 read-modify-write。可以在 CAS 前加快速檢查：
+
+```cpp
+if (__atomic_load_n(&distances[v], __ATOMIC_RELAXED)
+        == NOT_VISITED_MARKER &&
+    __sync_bool_compare_and_swap(
+        &distances[v], NOT_VISITED_MARKER, depth + 1)) {
+    // 收集新頂點。
+}
+```
+
+快速檢查只用來跳過工作，不能取代 CAS；另一個 thread 可能在檢查後先成功。這裡使用 atomic load，是因為本層其他 threads 正在更新相同位置；混用普通讀取與並行原子寫入，不能只靠「int 很小」保證 C++ 資料競爭正確性。`RELAXED` load 只觀察標記，不用它發布其他資料；下一層的可見性仍由 step 結束的同步負責。可參考 [GCC atomic 文件](https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html)。
+
+接著處理每次成功發現都更新共享 count 的成本。做法是先收進 thread 私有的 buffer，再一次預約一段輸出空間：
+
+```text
+parallel region，每個 thread 建立自己的 local_vertices
+    omp for：分配本層 frontier 頂點
+        掃 outgoing edges
+        CAS 成功 → local_vertices.push_back(v)
+
+    每個 thread 取得 local_count
+    用一次 atomic capture 預約 [base, base + local_count)
+    將自己的 local_vertices 複製到 new_frontier 對應範圍
+parallel region 結束：所有複製完成
+```
+
+預約區間的局部寫法是：
+
+```cpp
+int base;
+int local_count = static_cast<int>(local_vertices.size());
+#pragma omp atomic capture
+{
+    base = new_frontier->count;
+    new_frontier->count += local_count;
+}
+// 然後複製到 new_frontier->vertices + base。
+```
+
+`std::vector<int>` 要建在每個 thread 的區域範圍，並在 `bfs.cpp` 引入 `<vector>`。一個共享 vector 的 `push_back()` 仍會 race。先用可成長的私有 vector，避免直接為每個 thread 配置 `num_nodes` 大小，讓記憶體膨脹為 threads × vertices。
+
+第一版每個成功發現約做一次共享 counter 更新；這一版可減成每個 thread 每層一次。另一條路是每個 thread 留下 count，由 prefix sum 計算輸出 offset，再平行複製；等 atomic 預約版本穩定後再研究。
+
+最後比較 `static` 與 `dynamic,64` / `guided,64`。Frontier 頂點數相近，不代表出邊數相近；高出度頂點可能讓某個 thread 特別忙。動態排程有管理成本，也無法把單一超大頂點的鄰接串列自動拆開。若 profiling 顯示單一 hub 主導，再研究按邊切分或處理高出度頂點。
+
+**Bottom-up，第一版：先讓序列演算法正確**
+
+這次的問題改成：「對每個尚未訪問的 `v`，是否有 `u → v`，而且 `u` 在本層 frontier？」找到第一個符合者就能停止搜尋，不必列舉所有可能的父節點。
+
+Top-down 的 frontier list 適合列舉成員，bottom-up 則需要大量的 membership 查詢。第一版可以用兩個長度為 `num_nodes` 的 byte arrays：
+
+```cpp
+std::vector<unsigned char> current(graph->num_nodes, 0);
+std::vector<unsigned char> next(graph->num_nodes, 0);
+current[ROOT_NODE_ID] = 1;
+```
+
+配合全部距離初始化為 `-1`、root 設為 `0`，以 `depth=0` 開始。每層做：
+
+```text
+清空 next，new_count = 0
+for 每個頂點 v:
+    若 distances[v] != -1：跳過
+    for u in incoming(v):
+        若 current[u] == 1:
+            distances[v] = depth + 1
+            next[v] = 1
+            new_count += 1
+            break
+
+所有頂點掃完後：
+    current 與 next 交換
+    depth += 1
+    若 new_count == 0：搜尋結束
+```
+
+關鍵是 `current` 在整層固定不變。新發現的頂點只進入 `next`；如果立即修改 `current`，同一輪稍後掃到的頂點可能利用新成員繼續前進，讓一條鏈在一輪內跨越多層。
+
+第一版也先避免用 `distances[u] == depth` 直接代替 membership：其他 threads 可能同時寫入原本未訪問的 `u`，即使邏輯判斷看似可以區分層數，普通讀寫仍可能形成 race。固定的 byte array 讓讀寫歸屬更清楚。
+
+你目前自行新增的 `bottom_up_step(Graph, VertexSet*, int*)` 可以調整參數，例如加入唯讀的 `current`、可寫的 `next`、`depth`，並回傳新發現數量。這是 `bfs.cpp` 內的 helper；不必讓它勉強沿用缺少必要資訊的介面。
+
+先在有向鏈 `0 → 1 → 2 → 3` 上手算並核對結果 `[0,1,2,3]`，再測菱形圖、孤立頂點、反向邊與環。
+
+**Bottom-up，第二版：按目的頂點平行化**
+
+在上面的外層 `v` 迴圈加入 `parallel for reduction(+:new_count)`，先用 `schedule(static)`。只要每個 `v` 由唯一 thread 處理，就有以下所有權：
+
+| 資料 | 本層的存取方式 |
+| --- | --- |
+| `current[u]` | 所有人只讀 |
+| `distances[v]` | 負責 `v` 的 thread 讀寫；鄰居判斷改讀 `current` |
+| `next[v]` | 負責 `v` 的 thread 寫入 |
+| `new_count` | thread 局部累加，最後 reduction |
+
+因此更新 `distances[v]` 不需要 CAS。若另外維護下一層 list，共享 append 的問題仍然存在，可重用 top-down 的私有 buffer 與批次合併方法。
+
+先使用 byte array，讓不同 `v` 對應不同記憶體位置。`std::vector<bool>` 與手工 packed bitmap 會把多個頂點塞進同一個 word；不同 threads 設定不同 bit 也可能競爭，需要額外的 word 分工或 atomic bit operation。
+
+每一層都要清理 `next`，包含已訪問頂點對應的位置；只寫新發現者而留下舊標記，交換後會混入過期的 frontier。交換與停止條件都放在 parallel loop 完成之後。
+
+優化時先保留找到第一個父節點就 `break` 的設計。後續可比較排程、維護 unvisited list，以及融合每個 `v` 的清零與搜尋；先確認 byte array 的生命週期正確，再增加資料結構。
+
+Bottom-up 並非所有圖都快。每層至少要掃候選頂點，frontier 很小時還可能檢查大量 incoming edges 才發現沒有父節點。長鏈、網格等多層圖尤其需要觀察這個成本。
+
+**Hybrid，第一版：共用狀態，每層選一個 step**
+
+先讓獨立的 top-down 與 bottom-up 都通過 correctness，再做 hybrid。Hybrid 需要一個共同的 BFS 外層迴圈，保留相同的 `distances`、`depth` 與 frontier。每層選擇一個 step；如果呼叫完整的 `bfs_top_down()` 或 `bfs_bottom_up()`，會重新初始化並從 root 重跑。
+
+第一版為了降低切換複雜度，可以要求兩種 step 都產生下一層的 vertex list：
+
+- Top-down 直接使用 list；只有選到 bottom-up 時，才把本層 list 轉成唯讀 membership array。
+- Bottom-up 掃描未訪問頂點，讀 membership，並以私有 buffer 收集下一層 list。
+- 整層完成後交換 list。下一層再決定方向；切換不改動已得到的距離。
+
+這樣先用一份 list 作為層邊界的共同表示。Bottom-up 若長時間持續執行，再研究保留兩份 dense arrays，只在切回 top-down 時轉成 list，以減少中間的轉換與收集成本。
+
+先試容易理解的 frontier 比例門檻，例如：top-down 模式下，`frontier_count > 0.05 * num_nodes` 時切到 bottom-up；bottom-up 模式下，frontier 已縮小且低於 `0.02 * num_nodes` 時切回。這些數值只是第一個實驗假設，請由量測調整，並用浮點比例或足夠寬的整數乘法避免小圖整除問題。
+
+兩個方向採不同門檻，並觀察 frontier 是否縮小，可以避免在邊界附近反覆切換。門檻判斷與表示轉換都在層邊界執行。
+
+**Hybrid，第二版：依預估邊數選方向**
+
+Frontier 大小只計算頂點數；少數高出度頂點也可能產生很多工作。可改為追蹤：
+
+```text
+n_f = 本層 frontier 的頂點數
+m_f = Σ outgoing_size(g, u)，u 在本層 frontier
+m_u = Σ incoming_size(g, v)，v 尚未訪問
+```
+
+在這份有向圖介面中，`m_f` 是 top-down 預計檢查的邊數，`m_u` 是 bottom-up 在沒有提早 break 時的邊檢查上界；它們都沒有完整計入頂點掃描、原子操作與表示轉換時間。
+
+可以研究 `m_f > m_u / alpha` 時切到 bottom-up，frontier 縮小且 `n_f < num_nodes / beta` 時切回。[隨作業提供的論文](HW3/part2/doc/bfs.pdf)第五節解釋了這類控制方式，第六節使用 `alpha=14`、`beta=24` 做實驗。這些是論文實驗的參數，可作為起點；在本作業的有向圖與工作站上仍要重新評估。
+
+計數可以用 `int64_t`，並在累加前轉成寬整數。取得新 frontier 時順便累加其出度；`m_u` 可在初始化時求和，之後減掉本層新訪問頂點的入度，避免只為了選方向就多掃整張圖。這些更新也要使用 reduction 或 thread 私有統計。
+
+Hybrid 的第一個觀察目標是：小 frontier 採 top-down，中間密集層採 bottom-up，尾端視收益切回。若某張圖始終維持小 frontier，整場使用 top-down 也可能合理，不需要強迫每張圖都切換。
+
+**測試與量測：從小圖確認，再看每一層的工作**
+
+先建立最小圖，測各種容易出錯的情況：
+
+| 圖 | 要確認的性質 |
+| --- | --- |
+| 單一 root、無邊 | 只得到距離 `0`，正常結束 |
+| 有向鏈 `0→1→2→3` | 距離恰為 `[0,1,2,3]`，不跨層 |
+| 菱形 `0→1,0→2,1→3,2→3` | `3` 距離為 `2`，只加入一次 |
+| 星狀圖 | 大 frontier 的容量、輸出合併與負載分配 |
+| 只有 `1→0`，加一個孤立點 `2` | 距離 `[0,-1,-1]`，incoming/outgoing 方向正確 |
+| 環、自環、重複邊 | 不重複發現，不無限迴圈 |
+
+工具支援將文字圖轉成 binary。先用附帶的五頂點圖熟悉流程：
+
+```bash
+# 從 repository 根目錄開始；工作站先 module load pp。
+cd HW3/part2/breadth_first_search
+make
+make -C ../tools
+BFS_WORK="$(mktemp -d /tmp/hw3-bfs.XXXXXX)"
+../tools/graph_tools text2bin ../tools/plaintext.graph "$BFS_WORK/tiny.graph"
+run -c 4 -- env OMP_NUM_THREADS=4 ./bfs "$BFS_WORK/tiny.graph" 4
+```
+
+[`plaintext.graph`](HW3/part2/tools/plaintext.graph) 的 root 直接連到其他四個頂點，所以預期距離為 `[0,1,1,1,1]`。可仿照這個檔案格式在暫存目錄建立自己的測例，再用 `text2bin` 轉換。
+
+目前 [`main.cpp`](HW3/part2/breadth_first_search/main.cpp) 的 usage 字串寫了指定 threads 時沒有 correctness run，但實際兩條分支都會執行 reference 並比較距離；請以程式碼與實際輸出為準。測試途中未完成的 bottom-up / hybrid 會報錯，先確認正在實作的項目；三者完成後應全部通過。
+
+接著在工作站依序測 1、2、4 threads，先用小圖，再用大型圖：
+
+```bash
+GRAPH_DIR=/data/pp/hw3/test
+for t in 1 2 4; do
+    run -c "$t" -- env OMP_NUM_THREADS="$t" \
+        ./bfs "$GRAPH_DIR/com-orkut_117m.graph" "$t"
+done
+
+# 最後測完整計分圖集合；-r 3 的 grader 會取三次中的最小時間。
+run -c 4 -- env OMP_NUM_THREADS=4 \
+    ./bfs_grader -n 4 -r 3 "$GRAPH_DIR"
+```
+
+目前 grader 的圖集合包含 `grid1000x1000.graph`、`soc-livejournal1_68m.graph`、`com-orkut_117m.graph`、`random_500m.graph`、`rmat_200m.graph`。不要只用一張低直徑圖選門檻；也要看網格圖中的逐層掃描成本。
+
+可以在除錯模式下每層記錄 `depth`、方向、frontier 大小、實際檢查邊數、CAS 嘗試數與成功數、表示轉換時間及 step 時間。大量統計用 thread 局部累加與 reduction，避免逐邊更新共享 counter 改變測試結果；正式測時間時關閉統計輸出。
+
+`bfs.cpp` 已有 `VERBOSE` 區塊，但目前裡面的 include 是 `../common/CycleTimer.h`，實際檔名是 `cycle_timer.h`；在 Linux 啟用前要於 `bfs.cpp` 修正大小寫，並用 `-DVERBOSE` 編譯。現有的逐層輸出只涵蓋 top-down，其他方法需要自行加入相同觀察點。
+
+若用 perf：
+
+```bash
+run -c 4 -- env OMP_NUM_THREADS=4 perf record \
+    -e cycles:u -F 499 --call-graph dwarf \
+    -o "$BFS_WORK/bfs.data" -- \
+    ./bfs "$GRAPH_DIR/com-orkut_117m.graph" 4
+perf report -i "$BFS_WORK/bfs.data" --stdio --no-children
+```
+
+這份 profile 包含載圖、三個 student BFS 與三個 reference BFS。閱讀時要定位自己的 `bfs_top_down`、`bfs_bottom_up`、`bfs_hybrid` 及其 worker/helper；不要把全程序時間當成某一個 BFS 的時間。若各方法共用 helper，整體 profile 也會合併其成本，這時逐層計時，或暫存目錄中只呼叫單一版本的 driver，更容易區分。正式效能比較使用 runner / grader 計算的各函式時間。
+
+| 實作版本 | 要驗證的改變 | 完成條件 |
+| --- | --- | --- |
+| TD v1 | CAS + atomic append | 多執行緒距離正確、frontier 無重複 |
+| TD v2 | atomic 預檢 + thread 私有 buffer | correctness 維持，觀察原子操作與時間是否下降 |
+| BU v1 | 固定 current / next，序列掃 incoming | 鏈、反向邊、不可達點都正確 |
+| BU v2 | 按 `v` 平行化 + count reduction | 1、2、4 threads 結果一致 |
+| Hybrid v1 | frontier 比例切換，共用 list | 切換前後層數與距離正確 |
+| Hybrid v2 | 邊數估計、降低轉換成本 | 多種圖的總時間改善，而非只改善單層 |
+
+現在先實作 **TD v1**：在 frontier 迴圈分工，以 CAS 決定發現資格，以 atomic capture 分配輸出位置。驗證菱形圖後，再比較 per-thread buffer；接著進入 bottom-up，最後組合成 hybrid。

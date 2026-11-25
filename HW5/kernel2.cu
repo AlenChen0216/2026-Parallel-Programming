@@ -53,13 +53,14 @@ void host_fe(float upper_x,
     size_t pitch;
     auto err = cudaHostAlloc((void **)&res, res_x*res_y*sizeof(int),cudaHostAllocDefault);
     auto err1 = cudaMallocPitch((void **)&output, &pitch, res_x * sizeof(int), res_y);
-
-    dim3 grid(1 + (res_x - 1) / N, 1 + (res_y - 1) / N);
-    dim3 block(N,N);
+    
+    dim3 block(32,8);
+    dim3 grid((res_x + block.x - 1) / block.x, (res_y + block.y - 1) / block.y);
+    
 
     mandel_kernel<<<grid,block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x, res_y, pitch);
 
-    auto err2 = cudaDeviceSynchronize();
+    // auto err2 = cudaDeviceSynchronize();
 
 
     cudaMemcpy2D(res, res_x*sizeof(int), output,pitch , res_x * sizeof(int), res_y, cudaMemcpyDeviceToHost);
