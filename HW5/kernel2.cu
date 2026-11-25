@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cuda.h>
 #include <cstring>
+#include <chrono>
 
 #define N 16
 
@@ -63,22 +64,48 @@ void host_fe(float upper_x,
     int *output;
     int *res;
     size_t pitch;
+    // Set HW5_PROFILE=1 to measure the host-side cost of each stage.
+    const bool profile = std::getenv("HW5_PROFILE") != nullptr;
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point t0, t1, t2, t3, t4, t5, t6;
+    if (profile) t0 = Clock::now();
     auto err = cudaHostAlloc((void **)&res, res_x*res_y*sizeof(int),cudaHostAllocDefault);
+    if (profile) t1 = Clock::now();
     auto err1 = cudaMallocPitch((void **)&output, &pitch, res_x * sizeof(int), res_y);
+    if (profile) t2 = Clock::now();
     
-    dim3 block(16,16);
+    dim3 block(8,8);
     dim3 grid((res_x + block.x - 1) / block.x, (res_y + block.y - 1) / block.y);
     
 
     mandel_kernel<<<grid,block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x, res_y, pitch);
 
-    // auto err2 = cudaDeviceSynchronize();
+    if (profile) {
+        cudaError_t launch_err = cudaGetLastError();
+        cudaError_t sync_err = cudaDeviceSynchronize();
+        if (launch_err != cudaSuccess || sync_err != cudaSuccess)
+            fprintf(stderr, "CUDA kernel error: %s / %s\n",
+                    cudaGetErrorString(launch_err), cudaGetErrorString(sync_err));
+        t3 = Clock::now();
+    }
 
 
     cudaMemcpy2D(res, res_x*sizeof(int), output,pitch , res_x * sizeof(int), res_y, cudaMemcpyDeviceToHost);
+    if (profile) t4 = Clock::now();
 
     memcpy(img,res,res_x*res_y*sizeof(int));
+    if (profile) t5 = Clock::now();
 
     cudaFree(output);
     cudaFreeHost(res);
+    if (profile) {
+        t6 = Clock::now();
+        auto ms = [](Clock::time_point a, Clock::time_point b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        fprintf(stderr, "[kernel2 profile] host_alloc=%.3f gpu_alloc=%.3f "
+                        "kernel_wait=%.3f d2h=%.3f memcpy=%.3f free=%.3f ms\n",
+                ms(t0, t1), ms(t1, t2), ms(t2, t3), ms(t3, t4),
+                ms(t4, t5), ms(t5, t6));
+    }
 }
