@@ -20,7 +20,9 @@ __global__ void mandel_kernel(int *output,const  float step_x, const float step_
     float y = y0 + ((float)j * step_y);
     int index = ((j * padding) + i);
 
+    
     float zre = x, zim = y;
+    float saved_re = zer, saved_im = zim;
     int res;
     for(res = 0 ; res < count; ++res){
         if(zre * zre + zim * zim > 4.f)
@@ -29,6 +31,14 @@ __global__ void mandel_kernel(int *output,const  float step_x, const float step_
         float new_im = 2.f * zre * zim;
         zre = x + new_re;
         zim = y + new_im;
+        if(zer == saved_re && zim == saved_im){
+            res = count;
+            break;
+        }
+        if((res & 31) == 31){
+            saved_re = zer;
+            saved_im = zim;
+        }
     }
     output[index] = res;
 }
