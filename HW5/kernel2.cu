@@ -22,16 +22,25 @@ __global__ void mandel_kernel(int *output,const  float step_x, const float step_
 
     
     float zre = x, zim = y;
+    float saved_re = zre, saved_im = zim;
     int res;
     for(res = 0 ; res < count; ++res){
         float re2 = zre * zre;
         float im2 = zim * zim;
-        if(re2 * im2 > 4.f)
+        if(re2 + im2 > 4.f)
             break;
         float new_re = re2 - im2;
         float new_im = 2.f * zre * zim;
         zre = x + new_re;
         zim = y + new_im;
+        if(__float_as_uint(zre) == __float_as_uint(saved_re) && __float_as_uint(zim) == __float_as_uint(saved_im)){
+            res = count;
+            break;
+        }
+        if((res & 31) == 31){
+            saved_re = zre;
+            saved_im = zim;
+        }
     }
     output[index] = res;
 }
@@ -57,7 +66,7 @@ void host_fe(float upper_x,
     auto err = cudaHostAlloc((void **)&res, res_x*res_y*sizeof(int),cudaHostAllocDefault);
     auto err1 = cudaMallocPitch((void **)&output, &pitch, res_x * sizeof(int), res_y);
     
-    dim3 block(32,32);
+    dim3 block(16,16);
     dim3 grid((res_x + block.x - 1) / block.x, (res_y + block.y - 1) / block.y);
     
 
