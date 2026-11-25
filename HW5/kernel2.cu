@@ -5,7 +5,7 @@
 
 #define N 16
 
-__global__ void mandel_kernel(int *output, float step_x, float step_y, float x0, float y0, int count, int width, int height, size_t pitch)
+__global__ void mandel_kernel(int *output,const  float step_x, const float step_y, const float x0, const float y0, const int count, const int width, const int height, const size_t pitch)
 {
     // To avoid error caused by the floating number, use the following pseudo code
     //
