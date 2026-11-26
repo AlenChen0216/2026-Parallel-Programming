@@ -43,52 +43,21 @@ __global__ void mandel_kernel(int *output,
                 float new_im = 2.f * zre * zim;
                 zre = x + new_re;
                 zim = y + new_im;
-                if (__float_as_uint(zre) == __float_as_uint(saved_re)
-                    && __float_as_uint(zim) == __float_as_uint(saved_im))
-                {
-                    res = count;
-                    break;
-                }
-                if ((res & 31) == 31)
-                {
-                    saved_re = zre;
-                    saved_im = zim;
-                }
+                // if (__float_as_uint(zre) == __float_as_uint(saved_re)
+                //     && __float_as_uint(zim) == __float_as_uint(saved_im))
+                // {
+                //     res = count;
+                //     break;
+                // }
+                // if ((res & 31) == 31)
+                // {
+                //     saved_re = zre;
+                //     saved_im = zim;
+                // }
             }
             output[index] = res;
         }
     }
-
-    // if (i >= width || j >= height)
-    //     return;
-    // int padding = pitch / sizeof(int);
-    // float x = x0 + ((float)i * step_x);
-    // float y = y0 + ((float)j * step_y);
-    // int index = ((j * padding) + i);
-
-    // float zre = x, zim = y;
-    // float saved_re = zre, saved_im = zim;
-    // int res;
-    // for(res = 0 ; res < count; ++res){
-    //     float re2 = zre * zre;
-    //     float im2 = zim * zim;
-    //     if(re2 + im2 > 4.f)
-    //         break;
-    //     float new_re = re2 - im2;
-    //     float new_im = 2.f * zre * zim;
-    //     zre = x + new_re;
-    //     zim = y + new_im;
-    //     if(__float_as_uint(zre) == __float_as_uint(saved_re) && __float_as_uint(zim) ==
-    //     __float_as_uint(saved_im)){
-    //         res = count;
-    //         break;
-    //     }
-    //     if((res & 31) == 31){
-    //         saved_re = zre;
-    //         saved_im = zim;
-    //     }
-    // }
-    // output[index] = res;
 }
 
 // Host front-end function that allocates the memory and launches the GPU kernel

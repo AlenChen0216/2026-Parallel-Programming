@@ -32,14 +32,14 @@ __global__ void mandel_kernel(int *output,const  float step_x, const float step_
         float new_im = 2.f * zre * zim;
         zre = x + new_re;
         zim = y + new_im;
-        if(__float_as_uint(zre) == __float_as_uint(saved_re) && __float_as_uint(zim) == __float_as_uint(saved_im)){
-            res = count;
-            break;
-        }
-        if((res & 31) == 31){
-            saved_re = zre;
-            saved_im = zim;
-        }
+        // if(__float_as_uint(zre) == __float_as_uint(saved_re) && __float_as_uint(zim) == __float_as_uint(saved_im)){
+        //     res = count;
+        //     break;
+        // }
+        // if((res & 31) == 31){
+        //     saved_re = zre;
+        //     saved_im = zim;
+        // }
     }
     output[index] = res;
 }
