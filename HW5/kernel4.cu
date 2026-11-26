@@ -48,19 +48,24 @@ void host_fe(float upper_x,
 
     float step_x = (upper_x - lower_x) / (float)res_x;
     float step_y = (upper_y - lower_y) / (float)res_y;
-    int *output, *res;
+    int *output;
+    int *res;
 
-    auto err1 = cudaHostAlloc((void **)&res, res_x*res_y*sizeof(int),cudaHostAllocMapped);
-    auto err2 = cudaHostGetDevicePointer(&output, res, 0);
+    res = new int[res_x * res_y];
+    auto err1 = cudaMalloc((void **)&output, res_x*res_y*sizeof(int));
 
     dim3 grid(1 + (res_x - 1) / N, 1 + (res_y - 1) / N);
     dim3 block(N,N);
 
     mandel_kernel<<<grid,block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x, res_y);
 
-    auto err3 = cudaDeviceSynchronize(0);
+    auto err2 = cudaDeviceSynchronize();
+
+
+    cudaMemcpy(res, output, res_x*res_y*sizeof(int), cudaMemcpyDeviceToHost);
 
     memcpy(img,res,res_x*res_y*sizeof(int));
 
-    cudaFreeHost(res);
+    cudaFree(output);
+    delete[] res;
 }
