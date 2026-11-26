@@ -1,36 +1,94 @@
-#include <cstdio>
-#include <cstdlib>
-#include <cuda.h>
+#include <algorithm>
 #include <cstring>
+#include <cuda.h>
 
-#define N 16
+#define N   8
+#define STP 2
 
-__global__ void mandel_kernel(int *output, float step_x, float step_y, float x0, float y0, int count, int width, int height, size_t pitch)
+__global__ void mandel_kernel(int *output,
+                              const float step_x,
+                              const float step_y,
+                              const float x0,
+                              const float y0,
+                              const int count,
+                              const int width,
+                              const int height,
+                              const size_t pitch)
 {
     // To avoid error caused by the floating number, use the following pseudo code
     //
     // float x = lowerX + thisX * stepX;
     // float y = lowerY + thisY * stepY;
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    int j = threadIdx.y + blockIdx.y * blockDim.y;
-    if (i >= width || j >= height)
-        return;
+    int init_j = (threadIdx.x + blockIdx.x * blockDim.x) * STP;
+    int init_i = (threadIdx.y + blockIdx.y * blockDim.y) * STP;
     int padding = pitch / sizeof(int);
-    float x = x0 + ((float)i * step_x);
-    float y = y0 + ((float)j * step_y);
-    int index = ((j * padding) + i);
 
-    float zre = x, zim = y;
-    int res;
-    for(res = 0 ; res < count; ++res){
-        if(zre * zre + zim * zim > 4.f)
-            break;
-        float new_re = (zre * zre) - (zim * zim);
-        float new_im = 2.f * zre * zim;
-        zre = x + new_re;
-        zim = y + new_im;
+    for (int i = init_i; i < min(init_i + STP, height); i++)
+    {
+        for (int j = init_j; j < min(init_j + STP, width); j++)
+        {
+            float x = x0 + ((float)j * step_x);
+            float y = y0 + ((float)i * step_y);
+            int index = ((i * padding) + j);
+            float zre = x, zim = y;
+            float saved_re = zre, saved_im = zim;
+            int res;
+            for (res = 0; res < count; ++res)
+            {
+                float re2 = zre * zre;
+                float im2 = zim * zim;
+                if (re2 + im2 > 4.f)
+                    break;
+                float new_re = re2 - im2;
+                float new_im = 2.f * zre * zim;
+                zre = x + new_re;
+                zim = y + new_im;
+                if (__float_as_uint(zre) == __float_as_uint(saved_re)
+                    && __float_as_uint(zim) == __float_as_uint(saved_im))
+                {
+                    res = count;
+                    break;
+                }
+                if ((res & 31) == 31)
+                {
+                    saved_re = zre;
+                    saved_im = zim;
+                }
+            }
+            output[index] = res;
+        }
     }
-    output[index] = res;
+
+    // if (i >= width || j >= height)
+    //     return;
+    // int padding = pitch / sizeof(int);
+    // float x = x0 + ((float)i * step_x);
+    // float y = y0 + ((float)j * step_y);
+    // int index = ((j * padding) + i);
+
+    // float zre = x, zim = y;
+    // float saved_re = zre, saved_im = zim;
+    // int res;
+    // for(res = 0 ; res < count; ++res){
+    //     float re2 = zre * zre;
+    //     float im2 = zim * zim;
+    //     if(re2 + im2 > 4.f)
+    //         break;
+    //     float new_re = re2 - im2;
+    //     float new_im = 2.f * zre * zim;
+    //     zre = x + new_re;
+    //     zim = y + new_im;
+    //     if(__float_as_uint(zre) == __float_as_uint(saved_re) && __float_as_uint(zim) ==
+    //     __float_as_uint(saved_im)){
+    //         res = count;
+    //         break;
+    //     }
+    //     if((res & 31) == 31){
+    //         saved_re = zre;
+    //         saved_im = zim;
+    //     }
+    // }
+    // output[index] = res;
 }
 
 // Host front-end function that allocates the memory and launches the GPU kernel
@@ -51,21 +109,27 @@ void host_fe(float upper_x,
     int *output;
     int *res;
     size_t pitch;
-    auto err = cudaHostAlloc((void **)&res, res_x*res_y*sizeof(int),cudaHostAllocDefault);
+    const size_t row_bytes = static_cast<size_t>(res_x) * sizeof(int);
+    const int batch_rows = std::min(res_y, 200);
+    auto err = cudaHostAlloc((void **)&res, row_bytes * batch_rows, cudaHostAllocDefault);
     auto err1 = cudaMallocPitch((void **)&output, &pitch, res_x * sizeof(int), res_y);
 
-    dim3 grid(1 + (res_x - 1) / N, 1 + (res_y - 1) / N);
-    dim3 block(N,N);
+    dim3 block(N, N);
+    const unsigned tile_width = block.x * STP;
+    const unsigned tile_height = block.y * STP;
+    dim3 grid(1 + (res_x - 1) / tile_width, 1 + (res_y - 1) / tile_height);
 
-    mandel_kernel<<<grid,block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x, res_y, pitch);
+    mandel_kernel<<<grid, block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x,
+                                   res_y, pitch);
 
-    auto err2 = cudaDeviceSynchronize();
-
-
-    cudaMemcpy2D(res, res_x*sizeof(int), output,pitch , res_x * sizeof(int), res_y, cudaMemcpyDeviceToHost);
-
-    memcpy(img,res,res_x*res_y*sizeof(int));
-
-    cudaFree(output);
+    for (int row = 0; row < res_y;)
+    {
+        const int rows = std::min(batch_rows, res_y - row);
+        const char *src = reinterpret_cast<const char *>(output) + row * pitch;
+        cudaMemcpy2D(res, row_bytes, src, pitch, row_bytes, rows, cudaMemcpyDeviceToHost);
+        memcpy(img + static_cast<size_t>(row) * res_x, res, rows * row_bytes);
+        row += rows;
+    }
     cudaFreeHost(res);
+    cudaFree(output);
 }
