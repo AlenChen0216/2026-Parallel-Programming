@@ -1,9 +1,7 @@
-#include <cstdio>
-#include <cstdlib>
 #include <cuda.h>
 #include <cstring>
 
-#define N 16
+#define N 8
 
 __global__ void mandel_kernel(int *output, float step_x, float step_y, float x0, float y0, int count, int width, int height)
 {
@@ -16,19 +14,20 @@ __global__ void mandel_kernel(int *output, float step_x, float step_y, float x0,
     if (i >= width || j >= height)
         return;
 
-    float x = x0 + ((float)i * step_x);
-    float y = y0 + ((float)j * step_y);
+    const float init_x = x0 + ((float)i * step_x);
+    const float init_y = y0 + ((float)j * step_y);
     int index = ((j * width) + i);
 
-    float zre = x, zim = y;
+    float x = init_x, y = init_y;
+    float x2 = x * x, y2 = y * y;
     int res;
-    for(res = 0 ; res < count; ++res){
-        if(zre * zre + zim * zim > 4.f)
+    for (res = 0; res < count; ++res) {
+        if (x2 + y2 > 4.f)
             break;
-        float new_re = (zre * zre) - (zim * zim);
-        float new_im = 2.f * zre * zim;
-        zre = x + new_re;
-        zim = y + new_im;
+        y = 2.f * x * y + init_y;
+        x = (x2 - y2) + init_x;
+        x2 = x * x;
+        y2 = y * y;
     }
     output[index] = res;
 }
@@ -60,7 +59,6 @@ void host_fe(float upper_x,
     mandel_kernel<<<grid,block>>>(output, step_x, step_y, lower_x, lower_y, max_iterations, res_x, res_y);
 
     auto err2 = cudaDeviceSynchronize();
-
 
     cudaMemcpy(res, output, res_x*res_y*sizeof(int), cudaMemcpyDeviceToHost);
 
